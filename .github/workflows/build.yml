@@ -1,0 +1,152 @@
+name: Build ZQ Ops Brain v2
+
+on:
+  push:
+    branches: [main, master]
+    tags:     ['v*']
+  pull_request:
+    branches: [main, master]
+
+env:
+  NODE_VERSION: '20'
+  RUST_VERSION: stable
+  ANDROID_NDK_VERSION: '27.0.12077973'
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Windows .exe build
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri (Windows)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName:    ${{ github.ref_name }}
+          releaseName: 'ZQ Ops Brain v__VERSION__'
+          releaseBody: |
+            ZQ Ops Brain v2 – INNM-WOSDS AI Workstation
+            Windows installer (.exe) build.
+          releaseDraft:      true
+          prerelease:        false
+          includeDebug:      false
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zq-ops-brain-windows
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: warn
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Android .apk build
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-android:
+    name: Build Android (.apk)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: >-
+            aarch64-linux-android
+            armv7-linux-androideabi
+            i686-linux-android
+            x86_64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager "ndk;${{ env.ANDROID_NDK_VERSION }}"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Tauri Android init
+        run: npm run tauri-android-init
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+
+      - name: Tauri Android build
+        run: npm run tauri-android-build -- --apk
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zq-ops-brain-android
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Lint & type-check (fast feedback)
+  # ─────────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Type-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Vite build (frontend only)
+        run: npm run build
