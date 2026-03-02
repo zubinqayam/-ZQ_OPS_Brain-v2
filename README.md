@@ -69,4 +69,4 @@ BUILD.md           Full build guide
 
 ## License
 
-MIT © ZQ Ops
+Apache 2 © ZQ Ops
